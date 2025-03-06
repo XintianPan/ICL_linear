@@ -145,3 +145,88 @@ class LinearReg(DataMethod):
             x[..., zero_index, -1] = 0
 
         return x, y
+    
+class MultiTaskLinearReg(DataMethod):
+    """
+    This class generates data for a linear regression task based on specific parameters, 
+    such as data size, sequence length, noise level, and condition number of the covariance matrix.
+    """
+
+    def __init__(self, dict: Dict = None):
+        """
+        Initialize the LinearReg class with a set of parameters.
+
+        Parameters:
+            dict (Dict): Dictionary containing parameters for data generation.
+        """
+        # Call the parent class initializer.
+        super().__init__(dict)
+        # Extract parameters for data generation.
+        self.L = dict['L']  # Sequence length
+        self.dx = dict['dx']  # Input dimension
+        self.dx1 = dict['dx1'] 
+        self.dx2 = dict['dx2']
+        self.dy = dict['dy']  # Output dimension
+        self.noise_std = dict['noise_std']  # Standard deviation of the noise
+        self.number_of_samples = dict['number_of_samples']  # Number of data samples
+        
+
+    def __generatedata__(self, **kwargs) -> Any:
+        """
+        Generate linear regression data.
+
+        Parameters:
+            kwargs: Additional keyword arguments (not used here).
+
+        Returns:
+            Tuple: Generated data tensors (z_q, z, y_q).
+        """
+        # Generate input data with shape (n, L, dx).
+        x = torch.randn(self.number_of_samples, self.L, self.dx)
+        # Generate query data (single time-step data) with shape (n, 1, dx).
+        x_q = torch.randn(self.number_of_samples, 1, self.dx)
+
+        # Generate regression coefficients (beta) with shape (n, dx, dy).
+        beta1 = torch.randn(self.number_of_samples, self.dx1, self.dy)
+        beta2 = torch.randn(self.number_of_samples, self.dx2, self.dy)
+        
+        # Generate target output data y with shape (n, L, dy) using x and beta.
+        y1 = torch.einsum('nlx,nxy->nly', x[:, :, :self.dx1], beta1)
+        # Add Gaussian noise to the output y.
+        y1 += np.sqrt(self.dx1) * self.noise_std * torch.randn(self.number_of_samples, self.L, self.dy)
+        # Generate output data for query points y_q with shape (n, 1, dy).
+        y_q1 = torch.einsum('nlx,nxy->nly', x_q[:, :, :self.dx1], beta1)
+
+        y2 = torch.einsum('nlx,nxy->nly', x[:, :, self.dx - self.dx2:], beta2)
+        # Add Gaussian noise to the output y.
+        y2 += np.sqrt(self.dx2) * self.noise_std * torch.randn(self.number_of_samples, self.L, self.dy)
+        # Generate output data for query points y_q with shape (n, 1, dy).
+        y_q2 = torch.einsum('nlx,nxy->nly', x_q[:, :, self.dx - self.dx2:], beta2)
+
+        # Concatenate x and y to form a combined tensor z for training purposes.
+        z = torch.cat([x, y1, y2], dim=2)
+        # Concatenate x_q with a zero-filled tensor to form z_q for query purposes.
+        y_q = torch.cat([y_q1, y_q2], dim=2)
+        y_q = y_q.squeeze(0)
+        z_q = torch.cat([x_q, torch.zeros_like(y_q)], dim=2)
+        return z_q.squeeze(0), z.squeeze(0), y_q
+
+    def __transform__(self, x: Any, zero_index: Optional[int] = None, **kwargs) -> Any:
+        """
+        Transform the data for training, validation, and testing.
+
+        Parameters:
+            x (Any): Input data tensor.
+            zero_index (Optional[int]): Index to set to zero in the data (if provided).
+
+        Returns:
+            Tuple: Transformed input and target tensors.
+        """
+        # Extract the last dimension of the data as the target output.
+        y = x[..., :, -1].clone()
+
+        # Optionally zero out a specified index.
+        if zero_index is not None:
+            x[..., zero_index, -1] = 0
+
+        return x, y
